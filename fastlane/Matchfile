@@ -1,0 +1,10 @@
+# Secrets storage default params
+git_url('git@github.com:Company/fastlane_secrets.git')
+git_branch('master') # default branch, for WL it will be overrided
+storage_mode('git')
+shallow_clone(true)
+
+# other match default params
+type('adhoc')
+readonly(true)
+username('engineering@example.com')
