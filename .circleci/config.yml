@@ -214,19 +214,19 @@ aliases:
 
   # workflows
   - &workflow_beta_qa
-    context: resource-center-frontend-qa
+    context: mobile-ci-cd-qa
     requires:
       - nodejs_setup
       - approve_beta_qa
     <<: *workflow_beta_qa_filters
   - &workflow_beta_staging
-    context: resource-center-frontend-staging
+    context: mobile-ci-cd-staging
     requires:
       - nodejs_setup
       - approve_beta_staging
     <<: *workflow_beta_staging_filters
   - &workflow_beta_production
-    context: resource-center-frontend-production
+    context: mobile-ci-cd-production
     requires:
       - nodejs_setup
       - approve_beta_production
@@ -402,26 +402,26 @@ workflows:
 
       - android_deploy:
           <<: *workflow_deploy_filters
-          context: resource-center-frontend-production
+          context: mobile-ci-cd-production
           requires:
             - nodejs_setup
             - android_approve
       - android_deploy_WhiteLabelCustomer:
           <<: *workflow_deploy_filters
-          context: resource-center-frontend-production
+          context: mobile-ci-cd-production
           requires:
             - nodejs_setup
             - android_approve_WhiteLabelCustomer
 
       - ios_deploy:
           <<: *workflow_deploy_filters
-          context: resource-center-frontend-production
+          context: mobile-ci-cd-production
           requires:
             - nodejs_setup
             - ios_approve
       - ios_deploy_WhiteLabelCustomer:
           <<: *workflow_deploy_filters
-          context: resource-center-frontend-production
+          context: mobile-ci-cd-production
           requires:
             - nodejs_setup
             - ios_approve_WhiteLabelCustomer
