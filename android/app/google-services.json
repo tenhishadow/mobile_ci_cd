@@ -1,7 +1,47 @@
-it comes from Firebase
-just add applications for android and place it here
-
-WARNING!
-if you (for example) have 2 apps
-and then add the third
-you need to re-download this file from Firebase and commit it
+{
+  "project_info": {
+    "project_number": "644446105863",
+    "firebase_url": "https://mobilecicd-31f40.firebaseio.com",
+    "project_id": "mobilecicd-31f40",
+    "storage_bucket": "mobilecicd-31f40.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:644446105863:android:2ff5e5cfd78ae6552115a2",
+        "android_client_info": {
+          "package_name": "com.company.CompanyProduct.qa"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "644446105863-gk9enmikhv5t2pnoch4v2og882qdrj7m.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBWeYj4vvfJvUAgO9c-fJZ6exLk0PGhSv8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "644446105863-gk9enmikhv5t2pnoch4v2og882qdrj7m.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "644446105863-6r09rafe679ut5jrdb4jcavf6enb3prr.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.company.CompanyProduct.qa"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
