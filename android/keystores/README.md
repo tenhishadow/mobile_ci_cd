@@ -1,5 +1,6 @@
 # notes:
 ".keystore" files are depricated and it's recommended to generate .jks
+
 -validity is better to set as 10 years cause Google wont' accept apks with cert for just one year(я тоже в шоке)
 
 # to generate keystore_for_android:
