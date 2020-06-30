@@ -1,0 +1,429 @@
+---
+
+aliases:
+
+  # common - cache
+  - &cache_restore_git
+    restore_cache:
+      name: cache | restore git
+      keys:
+        - src-v1-{{ arch }}-{{ .Branch }}-{{ .Revision }}
+        - src-v1-{{ arch }}-{{ .Branch }}-
+        - src-v1-{{ arch }}
+  - &cache_save_git
+    save_cache:
+      name: cache | save git
+      key: src-v1-{{ arch }}-{{ .Branch }}-{{ .Revision }}
+      paths:
+        - ".git"
+  - &cache_restore_yarn
+    restore_cache:
+      name: cache | restore yarn
+      keys:
+        - v1-yarn-cache-{{ .Branch }}-{{ checksum "yarn.lock" }}
+        # fallback to using the latest cache if no exact match is found
+        - v1-yarn-cache-{{ .Branch }}-
+        - v1-yarn-cache-
+  - &cache_save_yarn
+    save_cache:
+      name: cache | store yarn
+      key: v1-yarn-cache-{{ .Branch }}-{{ checksum "yarn.lock" }}
+      paths:
+        - "/tmp/cache/yarn"
+  - &cache_restore_bundler
+    restore_cache:
+      name: cache | restore bundle
+      key: v1-gem-cache-{{ arch }}-{{ .Branch }}-{{ checksum "Gemfile.lock" }}
+  - &cache_save_bundler
+    save_cache:
+      name: cache | store bundle
+      key: v1-gem-cache-{{ arch }}-{{ .Branch }}-{{ checksum "Gemfile.lock" }}
+      paths:
+        - "vendor/bundle"
+  - &cache_restore_android_gradle
+    restore_cache:
+      name: cache | restore android_gradle
+      key: |
+        v1-jars-{{ checksum "android/build.gradle" }}-{{ checksum  "android/app/build.gradle" }}-{{ .Environment.CIRCLE_STAGE }}-{{ .Branch }}
+  - &cache_save_android_gradle
+    save_cache:
+      name: cache | store android_gradle
+      key: v1-jars-{{ checksum "android/build.gradle" }}-{{ checksum  "android/app/build.gradle" }}-{{ .Environment.CIRCLE_STAGE }}-{{ .Branch }}
+      paths:
+        - "~/.gradle"
+        - "android/.gradle"
+
+  # common
+  - &install_deps_yarn
+    name: install deps | yarn
+    command: >-
+      yarn
+      --no-progress
+      --frozen-lockfile
+      --cache-folder /tmp/cache/yarn
+
+  - &install_deps_bundle
+    name: install deps | bundle
+    command: |
+      BUNDLER_VERSION=$(awk 'END { print $NF }' Gemfile.lock)
+      gem install bundler
+      bundle check || bundle install  --jobs=4 --retry=3  --path ./vendor/bundle
+      bundle clean
+  - &install_deps_firebase_cli
+    name: install deps | firebase
+    command: curl -sL firebase.tools | ${SHELL}
+  - &fastlane_execute
+    name: fastlane | execute lane
+    command: >-
+      bundle exec fastlane
+      $FASTLANE_LANE
+      --verbose
+
+  # android common
+  - &android_accept_licenses
+    name: android sdk | accept licenses
+    command: |
+      yes | $ANDROID_HOME/tools/bin/sdkmanager --licenses || exit 0
+  - &android_jetify_androidx
+    name: jetify/convert node_modules dependencies to AndroidX
+    command: node node_modules/jetifier/bin/jetify
+  - &android_manage_secrets
+    name: android | manage secrets
+    command: |
+      # keystore for release build
+      echo $ANDROID_RELEASE_KEYSTORE | base64 -d \
+      > android/keystores/release.jks
+  - &android_show_outputs
+    name: android | do report about assembled apk(s)
+    command: fastlane/helpers/apk_report.sh
+  - &android_store_artifacts
+    store_artifacts:
+      path: android/app/build/outputs/apk
+      destination: apks/
+
+  # android flows
+  - &android_flow_beta
+    executor: docker_android
+    steps:
+      - *cache_restore_git
+      - checkout
+      - *cache_save_git
+      - attach_workspace:
+          at: "./"
+      - *cache_restore_bundler
+      - *cache_restore_android_gradle
+      - run: *install_deps_bundle
+      - *cache_save_bundler
+      # - *cache_restore_yarn # FIXME - fix cache DEV-128
+      - run: *install_deps_yarn
+      - run: *android_accept_licenses
+      - run: *install_deps_yarn
+      - run: *install_deps_firebase_cli
+      - run: *android_jetify_androidx
+      - run: *fastlane_execute
+      - run: *android_show_outputs
+      - *cache_save_android_gradle
+      - *android_store_artifacts
+  - &android_flow_deploy
+    executor: docker_android
+    steps:
+      - *cache_restore_git
+      - checkout
+      - *cache_save_git
+      - attach_workspace:
+          at: "./"
+      - *cache_restore_bundler
+      - run: *install_deps_bundle
+      - *cache_save_bundler
+      - run: *android_accept_licenses
+      - run: *install_deps_firebase_cli
+      - run: *android_jetify_androidx
+      - run: *fastlane_execute
+      - run: *android_show_outputs
+      - *android_store_artifacts
+
+  # ios
+  - &ios_add_ssh_key_for_signing_repo
+    add_ssh_keys:
+      fingerprints:
+        - 'xx:xx:xx:xx'
+  - &ios_store_artifacts
+    store_artifacts:
+      path: output
+
+  # ios flows
+  - &ios_flow_beta
+    executor: mac
+    steps:
+      - *cache_restore_git
+      - checkout
+      - *cache_save_git
+      - attach_workspace:
+          at: "./"
+      - *cache_restore_bundler
+      - run: *install_deps_bundle
+      - *cache_save_bundler
+      # - *cache_restore_yarn # FIXME - fix cache DEV-128
+      - run: *install_deps_yarn
+      - run: *install_deps_firebase_cli
+      - *ios_add_ssh_key_for_signing_repo
+      - run: *fastlane_execute
+      - *ios_store_artifacts
+
+  - &ios_flow_deploy
+    executor: mac
+    steps:
+      - *cache_restore_git
+      - checkout
+      - *cache_save_git
+      - attach_workspace:
+          at: "./"
+      - *cache_restore_bundler
+      - run: *install_deps_bundle
+      - *cache_save_bundler
+      # - *cache_restore_yarn # FIXME - fix cache DEV-128
+      - run: *install_deps_yarn
+      - run: *install_deps_firebase_cli
+      - *ios_add_ssh_key_for_signing_repo
+      - run: *fastlane_execute
+      - *ios_store_artifacts
+
+  ## CircleCI workflows
+  # filters: beta
+  - &workflow_beta_qa_filters
+    filters:
+      branches:
+        ignore:
+          - master
+  - &workflow_beta_staging_filters
+    filters:
+      branches:
+        ignore:
+          - master
+  - &workflow_beta_production_filters
+    filters:
+      branches:
+        only:
+          - integration
+  # filters: production
+  - &workflow_deploy_filters
+    filters:
+      branches:
+        only:
+          - "pre-release"
+
+  # workflows
+  - &workflow_beta_qa
+    context: resource-center-frontend-qa
+    requires:
+      - nodejs_setup
+      - approve_beta_qa
+    <<: *workflow_beta_qa_filters
+  - &workflow_beta_staging
+    context: resource-center-frontend-staging
+    requires:
+      - nodejs_setup
+      - approve_beta_staging
+    <<: *workflow_beta_staging_filters
+  - &workflow_beta_production
+    context: resource-center-frontend-production
+    requires:
+      - nodejs_setup
+      - approve_beta_production
+    <<: *workflow_beta_production_filters
+
+version: 2.1
+
+# executors description
+executors:
+  docker_node:
+    docker:
+      - image: "circleci/node:lts"
+    resource_class: large
+    working_directory: "~/repo"
+  docker_android:
+    docker:
+      - image: "circleci/android:api-28-node"
+      # according to ./android/build.gradle
+    resource_class: large
+    working_directory: "~/repo"
+    environment:
+      # fastlane
+      FASTLANE_SKIP_UPDATE_CHECK: true
+      FASTLANE_HIDE_CHANGELOG: true
+      # java; gradle
+      _JAVA_OPTIONS: >-
+        -XX:+HeapDumpOnOutOfMemoryError
+        -Xmx8192m
+        -Dfile.encoding=UTF-8
+      GRADLE_OPTS: >-
+        -Dorg.gradle.daemon=false
+        -Dorg.gradle.parallel=true
+        -Dorg.gradle.workers.max=4
+  mac:
+    macos:
+      xcode: "11.3.1"
+    working_directory: "~/repo"
+    environment:
+      # locale
+      LC_ALL: en_US.UTF-8
+      LANG: en_US.UTF-8
+      LANGUAGE: en_US.UTF-8
+      # fastlane
+      FASTLANE_SKIP_UPDATE_CHECK: true
+      FASTLANE_HIDE_CHANGELOG: true
+      FL_OUTPUT_DIR: output
+    shell: "/bin/bash --login -o pipefail"
+
+# jobs description
+jobs:
+  nodejs_setup:
+    executor: docker_node
+    steps:
+      - *cache_restore_git
+      - checkout
+      - *cache_save_git
+      - *cache_restore_yarn
+      - run: *install_deps_yarn
+      - *cache_save_yarn
+      - run:
+          name: Run tests with JUnit as reporter
+          command: yarn ci
+          environment:
+            JEST_JUNIT_OUTPUT_DIR: "reports/junit/js-test-results.xml"
+      - store_test_results:
+          path: reports
+      - persist_to_workspace:
+          root: "./"
+          paths:
+            - node_modules
+  # android beta
+  android_beta_qa:
+    <<: *android_flow_beta
+    environment:
+      - FASTLANE_LANE: "android firebase_qa"
+  android_beta_staging:
+    <<: *android_flow_beta
+    environment:
+      - FASTLANE_LANE: "android firebase_staging"
+  android_beta_production:
+    <<: *android_flow_beta
+    environment:
+      - FASTLANE_LANE: "android firebase_production"
+
+  # android deploy
+  android_deploy:
+    <<: *android_flow_deploy
+    environment:
+      - FASTLANE_LANE: "android release"
+  android_deploy_WhiteLabelCustomer:
+    <<: *android_flow_deploy
+    environment:
+      - FASTLANE_LANE: "android whitelabel_WhiteLabelCustomer"
+
+  # ios beta
+  ios_beta_qa:
+    <<: *ios_flow_beta
+    environment:
+      - FASTLANE_LANE: "ios firebase_qa"
+  ios_beta_staging:
+    <<: *ios_flow_beta
+    environment:
+      - FASTLANE_LANE: "ios firebase_staging"
+  ios_beta_production:
+    <<: *ios_flow_beta
+    environment:
+      - FASTLANE_LANE: "ios firebase_production"
+
+  # ios deploy
+  ios_deploy:
+    <<: *ios_flow_deploy
+    environment:
+      - FASTLANE_LANE: "ios release"
+  ios_deploy_WhiteLabelCustomer:
+    <<: *ios_flow_deploy
+    environment:
+      - FASTLANE_LANE: "ios whitelabel_WhiteLabelCustomer"
+
+workflows:
+  version: 2
+  deploy_beta:  # Firebase Distribution
+    jobs:
+      - nodejs_setup:
+          filters:
+            branches:
+              ignore:
+                - "pre-release"
+                - "master"
+      - approve_beta_qa:
+          <<: *workflow_beta_qa_filters
+          type: approval
+      - approve_beta_staging:
+          <<: *workflow_beta_staging_filters
+          type: approval
+      - approve_beta_production:
+          <<: *workflow_beta_production_filters
+          type: approval
+
+
+      # build type QA
+      - android_beta_qa:
+          <<: *workflow_beta_qa
+      - ios_beta_qa:
+          <<: *workflow_beta_qa
+      # build type STAGING
+      - android_beta_staging:
+          <<: *workflow_beta_staging
+      - ios_beta_staging:
+          <<: *workflow_beta_staging
+      # build type PRODUCTION
+      - android_beta_production:
+          <<: *workflow_beta_production
+      - ios_beta_production:
+          <<: *workflow_beta_production
+
+  production_deploy:  # Playmarket/TestFlight Distribution
+    jobs:
+      - nodejs_setup:
+          <<: *workflow_deploy_filters
+
+      - android_approve:
+          <<: *workflow_deploy_filters
+          type: approval
+      - ios_approve:
+          <<: *workflow_deploy_filters
+          type: approval
+      - ios_approve_WhiteLabelCustomer:
+          <<: *workflow_deploy_filters
+          type: approval
+      - android_approve_WhiteLabelCustomer:
+          <<: *workflow_deploy_filters
+          type: approval
+
+      - android_deploy:
+          <<: *workflow_deploy_filters
+          context: resource-center-frontend-production
+          requires:
+            - nodejs_setup
+            - android_approve
+      - android_deploy_WhiteLabelCustomer:
+          <<: *workflow_deploy_filters
+          context: resource-center-frontend-production
+          requires:
+            - nodejs_setup
+            - android_approve_WhiteLabelCustomer
+
+      - ios_deploy:
+          <<: *workflow_deploy_filters
+          context: resource-center-frontend-production
+          requires:
+            - nodejs_setup
+            - ios_approve
+      - ios_deploy_WhiteLabelCustomer:
+          <<: *workflow_deploy_filters
+          context: resource-center-frontend-production
+          requires:
+            - nodejs_setup
+            - ios_approve_WhiteLabelCustomer
+
+...

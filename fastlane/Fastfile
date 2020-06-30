@@ -1,0 +1,272 @@
+opt_out_usage              # don't send usage report
+fastlane_version '2.135.2' # setup miniman required version
+
+# include helper with classes
+require './helpers/CompanyFastlane.rb'
+
+platform :android do
+
+  before_all do
+    # android | check common vars
+    ensure_env_vars( env_vars: ['FIREBASE_CLI_TOKEN'] )
+    # android | write release_notes_file for beta distribution
+    sh "./helpers/beta_msg.sh > helpers/beta_msg_placeholder.txt"
+  end
+
+  desc "assemble QA build and distribute via firebase"
+  lane :firebase_qa do
+    ensure_env_vars(
+      env_vars: ['FIREBASE_CLI_TOKEN','ANDROID_FIREBASE_APP_QA']
+    )
+    common_build( customer: CompanyFastlane::BuildsInternal::Qa )
+    apkPaths     = lane_context[SharedValues::GRADLE_ALL_APK_OUTPUT_PATHS] || []
+    apkArmv8Path = apkPaths.find { |path| path.include?("arm64-v8a") } # need to find it better, but it works
+    distribution_firebase(
+      FIREBASE_APK: apkArmv8Path,
+      customer:     CompanyFastlane::BuildsInternal::Qa
+    )
+  end
+
+  desc "assemble STAGING build and distribute via firebase"
+  lane :firebase_staging do
+    ensure_env_vars(
+      env_vars: ['FIREBASE_CLI_TOKEN','ANDROID_FIREBASE_APP_STAGING']
+    )
+    common_build( customer: CompanyFastlane::BuildsInternal::Staging )
+    apkPaths     = lane_context[SharedValues::GRADLE_ALL_APK_OUTPUT_PATHS] || []
+    apkArmv8Path = apkPaths.find { |path| path.include?("arm64-v8a") }
+    distribution_firebase(
+      FIREBASE_APK: apkArmv8Path,
+      customer:     CompanyFastlane::BuildsInternal::Staging
+    )
+  end
+
+  desc "assemble PRODUCTION build and distribute via firebase"
+  lane :firebase_production do
+    # manage secrets
+    ensure_env_vars( env_vars: ['ANDROID_RELEASE_KEYSTORE'] )
+    sh "echo ${ANDROID_RELEASE_KEYSTORE} | base64 -d > ../android/keystores/release.jks" # many variant's I do it so.
+
+    ensure_env_vars(
+      env_vars: ['FIREBASE_CLI_TOKEN','ANDROID_FIREBASE_APP_PRODUCTION']
+    )
+    common_build( customer: CompanyFastlane::BuildsInternal::Production )
+    apkPaths     = lane_context[SharedValues::GRADLE_ALL_APK_OUTPUT_PATHS] || []
+    apkArmv8Path = apkPaths.find { |path| path.include?("arm64-v8a") }
+    distribution_firebase(
+      FIREBASE_APK: apkArmv8Path,
+      customer:     CompanyFastlane::BuildsInternal::Production
+    )
+  end
+
+  desc "assemble PRODUCTION build and distribute via Google Playmarket"
+  lane :release do
+    # manage secrets
+    ensure_env_vars( env_vars: ['ANDROID_RELEASE_KEYSTORE'] )
+    sh "echo ${ANDROID_RELEASE_KEYSTORE} | base64 -d > ../android/keystores/release.jks"
+
+    common_build( customer: CompanyFastlane::BuildsInternal::Production )
+    distribution_playmarket( customer: CompanyFastlane::BuildsInternal::Production )
+  end
+
+  desc "whitelabel WhiteLabelCustomer"
+  lane :whitelabel_WhiteLabelCustomer do
+    # manage secrets
+    ensure_env_vars( env_vars: ['SUPPLY_JSON_KEY_DATA_BRANDED','ANDROID_KEYSTORE_BRANDED_BASE64'] )
+    ENV['SUPPLY_JSON_KEY_DATA'] = ENV['SUPPLY_JSON_KEY_DATA_BRANDED']
+    sh "echo ${ANDROID_KEYSTORE_BRANDED_BASE64} | base64 -d > ../android/keystores/release-branded.jks"
+
+    common_build( customer: CompanyFastlane::BuildsWhiteLabel::WhiteLabelCustomer )
+    distribution_playmarket( customer: CompanyFastlane::BuildsWhiteLabel::WhiteLabelCustomer )
+  end
+
+  desc "template build ios application"
+  private_lane :common_build do |options|
+    ENV['APPLICATION_NAME']            = options[:customer]::BACKAPPNAME
+    ENV['ROLLBAR_SOURCE_MAPS_VERSION'] = "#{ENV['CIRCLE_BUILD_NUM']}.android"
+    ENV['SHOW_DEV_MENU']               = options[:customer]::SHOWDEVMENU
+    ensure_env_vars(
+      env_vars: [
+        'APPLICATION_NAME',
+        'ROLLBAR_SOURCE_MAPS_VERSION',
+        'SHOW_DEV_MENU'
+      ]
+    )
+    gradle(
+      project_dir: options[:customer]::ANDROIDPROJECTDIR,
+      task:        options[:customer]::ANDROIDGRADLETASK
+    )
+  end
+
+  desc "private lane for Firebase Distribution"
+  private_lane :distribution_firebase do |options|
+    firebase_app_distribution(
+      apk_path:           options[:FIREBASE_APK],
+      app:                options[:customer].FirebaseApplicationAndroid,
+      firebase_cli_token: CompanyFastlane::BuildsInternal.FirebaseCliToken,
+      groups:             CompanyFastlane::BuildsInternal::FIREBASEGROUPTESTERS,
+      release_notes_file: CompanyFastlane::BuildsInternal::FIREBASERELEASENOTESFILE,
+      testers:            CompanyFastlane::BuildsInternal::FIREBASEINDIVIDUALTESTERS
+    )
+  end
+
+  desc "private lane for Google Playmarket Distribution"
+  private_lane :distribution_playmarket do |options|
+    upload_to_play_store(
+      package_name:            options[:customer]::BUNDLEID,
+      skip_upload_changelogs:  options[:customer]::PLAYMARKETSKIPUPLOADCHANGELOGS,
+      skip_upload_images:      options[:customer]::PLAYMARKETSKIPUPLOADIMAGES,
+      skip_upload_metadata:    options[:customer]::PLAYMARKETSKIPUPLOADMETADATA,
+      skip_upload_screenshots: options[:customer]::PLAYMARKETSKIPUPLOADSCREENSHOTS,
+      track:                   options[:customer]::PLAYMARKETTRACK,
+      validate_only:           options[:customer]::PLAYMARKETVALIDATEONLY
+    )
+  end
+end
+
+platform :ios do
+  before_all do
+    ensure_env_vars( env_vars: ['FASTLANE_USER','FASTLANE_PASSWORD','MATCH_PASSWORD'])
+    setup_circle_ci
+    # ios | write release_notes_file for beta distribution
+    sh "./helpers/beta_msg.sh > helpers/beta_msg_placeholder.txt"
+  end
+
+  desc "assemble QA build and distribute via firebase"
+  lane :firebase_qa do
+    common_build( customer: CompanyFastlane::BuildsInternal::Qa )
+    distribution_firebase( customer: CompanyFastlane::BuildsInternal::Qa )
+  end
+
+  desc "assemble STAGING build and distribute via firebase"
+  lane :firebase_staging do
+    common_build( customer: CompanyFastlane::BuildsInternal::Staging )
+    distribution_firebase( customer: CompanyFastlane::BuildsInternal::Staging )
+  end
+
+  desc "assemble PRODUCTION build and distribute via firebase"
+  lane :firebase_production do
+    common_build( customer: CompanyFastlane::BuildsInternal::Production )
+    distribution_firebase( customer: CompanyFastlane::BuildsInternal::Production )
+  end
+
+  desc "assemble PRODUCTION build and distribute via TestFlight"
+  lane :release do
+    common_build( customer: CompanyFastlane::BuildsInternal::ProductionTestFlight )
+    distribution_testflight( customer: CompanyFastlane::BuildsInternal::ProductionTestFlight )
+  end
+
+  desc "whitelabel WhiteLabelCustomer"
+  lane :whitelabel_WhiteLabelCustomer do
+    common_build( customer: CompanyFastlane::BuildsWhiteLabel::WhiteLabelCustomer )
+    distribution_testflight( customer: CompanyFastlane::BuildsWhiteLabel::WhiteLabelCustomer )
+  end
+
+  desc "template build ios application"
+  private_lane :common_build do |options|
+    ENV['APPLICATION_NAME']            = options[:customer]::BACKAPPNAME
+    ENV['ROLLBAR_SOURCE_MAPS_VERSION'] = "#{ENV['CIRCLE_BUILD_NUM']}.ios"
+    ENV['SHOW_DEV_MENU']               = options[:customer]::SHOWDEVMENU
+    ensure_env_vars(
+      env_vars: [
+        'APPLICATION_NAME',
+        'ROLLBAR_SOURCE_MAPS_VERSION',
+        'SHOW_DEV_MENU'
+      ]
+    )
+    increment_build_number(
+      build_number: ENV["CIRCLE_BUILD_NUM"],
+      xcodeproj:    options[:customer]::XCODEPROJECT
+    )
+    automatic_code_signing(
+      code_sign_identity:    'Apple Distribution',
+      path:                  options[:customer]::XCODEPROJECT,
+      team_id:               options[:customer]::APPLEDEVPORTALTEAM,
+      use_automatic_signing: false
+    )
+    match(
+      app_identifier: options[:customer]::BUNDLEID,
+      git_branch:     options[:customer]::MATCHGITBRANCH,
+      team_id:        options[:customer]::APPLEDEVPORTALTEAM,
+      type:           options[:customer]::MATCHTYPE,
+      verbose:        true
+    )
+    update_project_provisioning(
+      code_signing_identity: 'Apple Distribution',
+      profile:               options[:customer].ProvisionProfile,
+      target_filter:         options[:customer]::XCODESCHEME,
+      xcodeproj:             options[:customer]::XCODEPROJECT
+    )
+    gym(
+      clean:            true,
+      configuration:    'Release',
+      export_method:    options[:customer]::GYMEXPORTMETHOD,
+      output_directory: './output',
+      output_name:      'ssrc_release',
+      scheme:           options[:customer]::XCODESCHEME,
+      workspace:        options[:customer]::XCODEWORKSPACE
+    )
+    UI.message "upload dSYM to Firebase/Crashlytics"
+    sh "../ios/pods/Fabric/upload-symbols -gsp ../ios/#{options[:customer]::GOOGLESERVICEPLIST} -p ios $( find ../output -type f -name *.dSYM.zip )"
+  end
+
+  desc "private lane for Firebase Distribution"
+  private_lane :distribution_firebase do |options|
+    ensure_env_vars( env_vars: ['FIREBASE_CLI_TOKEN'] )
+    FIREBASEAPPLICATIONIOS = get_info_plist_value(
+      key:  'GOOGLE_APP_ID',
+      path: "ios/#{options[:customer]::GOOGLESERVICEPLIST}"
+    )
+    firebase_app_distribution(
+      app:                FIREBASEAPPLICATIONIOS,
+      firebase_cli_token: CompanyFastlane::BuildsInternal.FirebaseCliToken,
+      groups:             CompanyFastlane::BuildsInternal::FIREBASEGROUPTESTERS,
+      release_notes_file: CompanyFastlane::BuildsInternal::FIREBASERELEASENOTESFILE,
+      testers:            CompanyFastlane::BuildsInternal::FIREBASEINDIVIDUALTESTERS
+    )
+  end
+
+  desc "private lane for TestFlight Distribution"
+  private_lane :distribution_testflight do |options|
+    upload_to_testflight(
+      app_identifier:                    options[:customer]::BUNDLEID,
+      skip_submission:                   true,
+      skip_waiting_for_build_processing: true,
+      team_name:                         options[:customer]::TESTFLIGHTTEAM
+    )
+  end
+  desc "private lane for updating apple certificates"
+  private_lane :update_apple_certs do |options|
+    ensure_env_vars(
+      env_vars: [
+        'FASTLANE_USER',     # engineering Apple account
+        'FASTLANE_PASSWORD', # engineering Apple account password
+        'MATCH_PASSWORD'     # password for decrypt storage (in Matchfile)
+      ]
+    )
+    create_keychain(
+      name:             "temp_fastlane_#{options[:customer]::MATCHGITBRANCH}",
+      password:         '',
+      default_keychain: true,
+      unlock:           true,
+      timeout:          3600,
+      lock_when_sleeps: true
+    )
+    match(
+      keychain_name:     "temp_fastlane_#{options[:customer]::MATCHGITBRANCH}",
+      keychain_password: '',
+      team_id:           options[:customer]::APPLEDEVPORTALTEAM,
+      git_branch:        options[:customer]::MATCHGITBRANCH,
+      readonly:          false,
+      type:              options[:customer]::MATCHTYPE,
+      app_identifier:    options[:customer]::BUNDLEID
+    )
+    delete_keychain( name: "temp_fastlane_#{options[:customer]::MATCHGITBRANCH}" )
+  end
+
+  desc "update certs | whitelabel | WhiteLabelCustomer"
+  lane :whitelabel_WhiteLabelCustomer_update_apple_certs do
+    update_apple_certs( customer: CompanyFastlane::BuildsWhiteLabel::WhiteLabelCustomer )
+  end
+
+end

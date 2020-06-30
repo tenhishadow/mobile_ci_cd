@@ -1,0 +1,150 @@
+apply plugin: 'com.android.application'
+
+// something here
+
+/**
+ * Set this to true to create two separate APKs instead of one:
+ *   - An APK that only works on ARM devices
+ *   - An APK that only works on x86 devices
+ * The advantage is the size of the APK is reduced by about 4MB.
+ * Upload all the APKs to the Play Store and people will download
+ * the correct one based on the CPU architecture of their device.
+ */
+def enableSeparateBuildPerCPUArchitecture = true
+
+/**
+ * Run Proguard to shrink the Java bytecode in release builds.
+ */
+def enableProguardInReleaseBuilds = true
+
+android {
+
+    signingConfigs {
+        // for google play
+        release {
+            keyAlias 'release-key'
+            storeFile     file('../keystores/release.jks')
+            storePassword System.getenv("ANDROID_KEYSTORE_RELEASE_SELF_PASSWORD")
+            keyPassword   System.getenv("ANDROID_KEYSTORE_RELEASE_SELF_PASSWORD")
+        }
+        // for whitelabels under one account
+        release_branded {
+            keyAlias      'release-key-branded'
+            storeFile     file('../keystores/release-branded.jks')
+            storePassword System.getenv("ANDROID_KEYSTORE_BRANDED_PASSWORD")
+            keyPassword   System.getenv("ANDROID_KEYSTORE_BRANDED_PASSWORD")
+        }
+        // for internal releases - I use the same for qa and staging
+        staging {
+            keyAlias 'staging'
+            storeFile     file('../keystores/staging.jks')
+            storePassword System.getenv("ANDROID_KEYSTORE_STAGING_PASSWORD")
+            keyPassword   System.getenv("ANDROID_KEYSTORE_STAGING_PASSWORD")
+        }
+    }
+//  something here
+
+    defaultConfig {
+        multiDexEnabled true
+        applicationId "com.company.CompanyProduct"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode readVersionCode()
+        versionName "1.3.3" // String
+        multiDexEnabled true
+    }
+    splits {
+        abi {
+            reset()
+            enable enableSeparateBuildPerCPUArchitecture
+            universalApk false  // If true, also generate a universal APK
+            include "armeabi-v7a", "x86", "arm64-v8a", "x86_64"
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled enableProguardInReleaseBuilds
+            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+        }
+        debug {
+            debuggable true
+        }
+    }
+
+
+    flavorDimensions "version"
+
+    productFlavors {
+        production {
+            dimension "version"
+            signingConfig signingConfigs.release
+            resValue "string", "app_name", "Product"
+        }
+        staging {
+            dimension "version"
+            signingConfig signingConfigs.staging
+            applicationIdSuffix ".staging"
+            resValue "string", "app_name", "Product.staging"
+        }
+        qa {
+            dimension "version"
+            signingConfig signingConfigs.staging
+            applicationIdSuffix ".qa"
+            resValue "string", "app_name", "Product.qa"
+        }
+
+        WhiteLabelCustomer {
+            dimension "version"
+            signingConfig signingConfigs.release_branded
+            applicationId "com.WhiteLabelCustomer.Product"
+            resValue "string", "app_name", "WhiteLabelCustomer XX"
+        }
+    }
+
+    // applicationVariants are e.g. debug, release
+    applicationVariants.all { variant ->
+        variant.outputs.each { output ->
+            // For each separate APK per architecture, set a unique version code as described here:
+            // https://developer.android.com/studio/build/configure-apk-splits.html
+            def versionCodes = ["armeabi-v7a": 1, "x86": 2, "arm64-v8a": 3, "x86_64": 4]
+            def abi = output.getFilter(OutputFile.ABI)
+            if (abi != null) {  // null for the universal-debug, universal-release variants
+                output.versionCodeOverride =
+                        versionCodes.get(abi) * 1048576 + defaultConfig.versionCode
+            }
+
+        }
+    }
+// something here
+
+afterEvaluate {
+    def isAndroidLibrary = plugins.hasPlugin("com.android.library")
+    def variants = isAndroidLibrary ? android.libraryVariants : android.applicationVariants
+
+    variants.all { def variant ->
+        def variantSuffix = variant.name.capitalize()
+
+        // Run `yarn check-vars` for non development variants
+        if (variantSuffix.toLowerCase().contains("release")) {
+            def generateJSTask = project.tasks.getByName("bundle${variantSuffix}JsAndAssets")
+            def checkVariablesTask = task("validateEnvironmentVariables${variantSuffix}", type: Exec) {
+                commandLine("yarn", "check-vars");
+            }
+
+            generateJSTask.dependsOn checkVariablesTask
+        }
+    }
+}
+
+dependencies {
+  // something here
+}
+
+
+def readVersionCode() {
+    def getcode = System.getenv("CIRCLE_BUILD_NUM") ?: "5"
+    def code = getcode as int # it must be int
+    return code
+}
+
+// something here
