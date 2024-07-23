@@ -1,4 +1,3 @@
 # Examples for mobile CI/CD solutions
 
-Here you can find examples for this: # FIXME - add youtube link
-# FIXME - add docs file and reference
+[youtube](https://www.youtube.com/watch?v=qx92Lmo_g5E)
